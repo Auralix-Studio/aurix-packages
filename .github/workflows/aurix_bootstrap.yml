@@ -1,0 +1,91 @@
+# Compila desde las fuentes el sistema base (bootstrap) de la terminal nativa de Aurix,
+# con el nombre de app pro.auralix.aurix, y lo publica como «release» con sus SHA-256.
+# La app lo empaqueta dentro del APK (como hace Termux en Google Play).
+name: Aurix bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      architectures:
+        description: "Arquitecturas separadas por espacios (aarch64 arm x86_64)"
+        required: true
+        default: "aarch64 arm x86_64"
+      add:
+        description: "Paquetes extra dentro del sistema base, separados por comas (van en el APK, no se descargan)"
+        required: false
+        default: "git,openssh"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      archs: ${{ steps.set.outputs.archs }}
+    steps:
+      - id: set
+        env:
+          ARCHS: ${{ github.event.inputs.architectures }}
+        run: echo "archs=$(echo "$ARCHS" | jq -R -c 'split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: matrix
+    if: github.repository == 'Auralix-Studio/aurix-packages'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJson(needs.matrix.outputs.archs) }}
+    steps:
+      - name: Liberar espacio en disco
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force
+          df -h /
+      - name: Clonar
+        uses: actions/checkout@v4
+      - name: Compilar el sistema base (${{ matrix.arch }})
+        env:
+          ADD: ${{ github.event.inputs.add }}
+        run: |
+          extra=()
+          if [ -n "$ADD" ]; then extra=(--add "$ADD"); fi
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }} "${extra[@]}"
+      - name: Guardar
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-${{ matrix.arch }}
+          path: bootstrap-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: out
+      - name: Publicar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADD: ${{ github.event.inputs.add }}
+        run: |
+          cd out
+          sha256sum bootstrap-*.zip > SHA256SUMS
+          cat SHA256SUMS
+          tag="bootstrap-$(date -u +%Y.%m.%d)-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Sistema base de la terminal de Aurix ($tag)" \
+            --notes "Compilado desde las fuentes de este repositorio (commit $GITHUB_SHA) para pro.auralix.aurix. Paquetes extra: ${ADD:-ninguno}. Licencias: ver LICENSE.md y la licencia de cada paquete." \
+            ./bootstrap-*.zip SHA256SUMS
