@@ -50,7 +50,7 @@ jobs:
           sudo docker image prune --all --force
           df -h /
       - name: Clonar
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Compilar el sistema base (${{ matrix.arch }})
         env:
           ADD: ${{ github.event.inputs.add }}
@@ -59,7 +59,7 @@ jobs:
           if [ -n "$ADD" ]; then extra=(--add "$ADD"); fi
           ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }} "${extra[@]}"
       - name: Guardar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bootstrap-${{ matrix.arch }}
           path: bootstrap-${{ matrix.arch }}.zip
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Descargar
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           merge-multiple: true
           path: out
