@@ -181,7 +181,9 @@ extract_debs() {
 
 				# Generate checksums (md5).
 				tar xf "$data_archive"
-				find data -type f -print0 | xargs -0 -r md5sum | sed 's@^\.$@@g' > "${BOOTSTRAP_ROOTFS}/${TERMUX_PREFIX}/var/lib/dpkg/info/${current_package_name}.md5sums"
+				if [ -d data ]; then
+					find data -type f -print0 | xargs -0 -r md5sum | sed 's@^\.$@@g' > "${BOOTSTRAP_ROOTFS}/${TERMUX_PREFIX}/var/lib/dpkg/info/${current_package_name}.md5sums"
+				fi
 
 				# Extract metadata.
 				tar xf "$control_archive"
@@ -434,13 +436,14 @@ main() {
 
 		# Core utilities.
 		PACKAGES+=("bash") # Used by `termux-bootstrap-second-stage.sh`
-		PACKAGES+=("bzip2")
+		PACKAGES+=("libbz2") # Produces both libbz2 and bzip2 subpackage
 		if ! ${BOOTSTRAP_ANDROID10_COMPATIBLE}; then
 			PACKAGES+=("command-not-found")
 		else
 			PACKAGES+=("proot")
 		fi
 		PACKAGES+=("coreutils")
+		PACKAGES+=("libcurl") # Produces both libcurl and curl subpackage
 		PACKAGES+=("dash")
 		PACKAGES+=("diffutils")
 		PACKAGES+=("findutils")
@@ -452,7 +455,6 @@ main() {
 		PACKAGES+=("psmisc")
 		PACKAGES+=("sed")
 		PACKAGES+=("tar")
-		PACKAGES+=("termux-core")
 		PACKAGES+=("termux-exec")
 		PACKAGES+=("termux-keyring")
 		PACKAGES+=("termux-tools")
