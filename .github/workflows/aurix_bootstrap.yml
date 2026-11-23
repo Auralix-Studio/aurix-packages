@@ -55,19 +55,29 @@ jobs:
         env:
           ADD: ${{ github.event.inputs.add }}
         run: |
-          # El usuario del contenedor (builder) no es el del runner: sin esto no puede dejar el zip en la carpeta del repo.
-          chmod a+rwx "$GITHUB_WORKSPACE"
           extra=()
           if [ -n "$ADD" ]; then extra=(--add "$ADD"); fi
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }} "${extra[@]}"
-          # build-bootstraps.sh no falla si no puede mover el zip: comprobarlo aquí.
-          test -s "bootstrap-${{ matrix.arch }}.zip"
-          ls -lh "bootstrap-${{ matrix.arch }}.zip"
+          # Las descargas de fuentes (Codeberg, Samba...) fallan a veces desde GitHub Actions.
+          # El contenedor sigue vivo entre intentos, así que el siguiente continúa con lo ya compilado.
+          for attempt in 1 2 3; do
+            echo "::group::Intento $attempt de 3"
+            if ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }} "${extra[@]}" && [ -s "output/bootstrap-${{ matrix.arch }}.zip" ]; then
+              echo "::endgroup::"
+              break
+            fi
+            echo "::endgroup::"
+            if [ "$attempt" = 3 ]; then echo "Fallaron los 3 intentos"; exit 1; fi
+            echo "Intento $attempt fallido; reintentando en 60 s"
+            sleep 60
+          done
+          # El contenedor solo puede escribir en output/ (AppArmor); el zip queda ahí.
+          test -s "output/bootstrap-${{ matrix.arch }}.zip"
+          ls -lh "output/bootstrap-${{ matrix.arch }}.zip"
       - name: Guardar
         uses: actions/upload-artifact@v7
         with:
           name: bootstrap-${{ matrix.arch }}
-          path: bootstrap-${{ matrix.arch }}.zip
+          path: output/bootstrap-${{ matrix.arch }}.zip
           if-no-files-found: error
 
   publish:

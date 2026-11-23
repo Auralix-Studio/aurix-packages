@@ -253,7 +253,11 @@ create_bootstrap_archive() {
 		zip -r9 "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" ./*
 	)
 
-	mv -f "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" "$TERMUX_PACKAGES_DIRECTORY/"
+	# AppArmor (scripts/profile-restricted.apparmor) solo deja escribir en output/, no en la raíz del repo.
+	if ! mv -f "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" "$TERMUX_BUILT_DEBS_DIRECTORY/"; then
+		echo "[!] No se pudo guardar bootstrap-${1}.zip en $TERMUX_BUILT_DEBS_DIRECTORY" 1>&2
+		return 1
+	fi
 
 	echo "[*] Finished successfully (${1})."
 

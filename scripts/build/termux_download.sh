@@ -54,7 +54,7 @@ termux_download() {
 	echo "Downloading ${URL}"
 	if ! curl "${CURL_OPTIONS[@]}" --output "$TMPFILE" "$URL"; then
 		local error=1
-		local retry=2
+		local retry=6
 		local delay=60
 		local try
 		for (( try=1; try <= retry; try++ )); do
