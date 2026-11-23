@@ -19,6 +19,7 @@ export TERMUX_SCRIPTDIR=$(realpath "$(dirname "$(realpath "$0")")/../")
 : "${TERMUX_TOPDIR:="$HOME/.termux-build"}"
 . "${TERMUX_SCRIPTDIR}"/scripts/properties.sh
 . "${TERMUX_SCRIPTDIR}"/scripts/build/termux_step_handle_buildarch.sh
+: "${TERMUX_PACKAGE_MANAGER:="apt"}"
 
 BOOTSTRAP_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/bootstrap-tmp.XXXXXXXX")
 
@@ -210,6 +211,7 @@ add_termux_bootstrap_second_stage_files() {
 	echo $'\n\n\n'"[*] Adding termux bootstrap second stage files..."
 
 	mkdir -p "${BOOTSTRAP_ROOTFS}/${TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_DIR}"
+	mkdir -p "${BOOTSTRAP_ROOTFS}/${TERMUX__PREFIX__PROFILE_D_DIR}"
 	sed -e "s|@TERMUX_PREFIX@|${TERMUX_PREFIX}|g" \
 		-e "s|@TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_DIR@|${TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_DIR}|g" \
 		-e "s|@TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_ENTRY_POINT_SUBFILE@|${TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_ENTRY_POINT_SUBFILE}|g" \
@@ -486,7 +488,7 @@ main() {
 		extract_debs "$TERMUX_ARCH" || return $?
 
 		# Add termux bootstrap second stage files
-		add_termux_bootstrap_second_stage_files "$package_arch"
+		add_termux_bootstrap_second_stage_files "$TERMUX_ARCH"
 
 		# Create bootstrap archive.
 		create_bootstrap_archive "$TERMUX_ARCH" || return $?
