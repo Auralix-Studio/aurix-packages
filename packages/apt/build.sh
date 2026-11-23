@@ -3,7 +3,8 @@ TERMUX_PKG_DESCRIPTION="Front-end for the dpkg package manager"
 TERMUX_PKG_LICENSE="GPL-2.0"
 TERMUX_PKG_MAINTAINER="@termux"
 TERMUX_PKG_VERSION="3.3.3"
-TERMUX_PKG_SRCURL=https://deb.debian.org/debian/pool/main/a/apt/apt_${TERMUX_PKG_VERSION}.tar.xz
+# Debian retiró 3.3.3 de su carpeta pool: se toma el mismo archivo (mismo SHA-256) del archivo histórico.
+TERMUX_PKG_SRCURL=https://snapshot.debian.org/archive/debian/20260814T202212Z/pool/main/a/apt/apt_${TERMUX_PKG_VERSION}.tar.xz
 TERMUX_PKG_SHA256=1c06b4a145d6117917c390c79fe7d27d9d92ee922101134ad6446717b0a1c28f
 # apt-key requires utilities from coreutils, findutils, gpgv, grep, sed.
 TERMUX_PKG_DEPENDS="coreutils, dpkg, findutils, gpgv, grep, libc++(>=30), openssl, liblzma, sed, termux-keyring, termux-licenses, xxhash"
