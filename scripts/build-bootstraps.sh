@@ -437,9 +437,9 @@ main() {
 		# Core utilities.
 		PACKAGES+=("bash") # Used by `termux-bootstrap-second-stage.sh`
 		PACKAGES+=("libbz2") # Produces both libbz2 and bzip2 subpackage
-		if ! ${BOOTSTRAP_ANDROID10_COMPATIBLE}; then
-			PACKAGES+=("command-not-found")
-		else
+		# Aurix: sin command-not-found. Su lista de comandos se genera con el nombre del repositorio de
+		# Termux ("termux-main") y no compila con un repositorio propio; es opcional (solo sugiere paquetes).
+		if ${BOOTSTRAP_ANDROID10_COMPATIBLE}; then
 			PACKAGES+=("proot")
 		fi
 		PACKAGES+=("coreutils")
