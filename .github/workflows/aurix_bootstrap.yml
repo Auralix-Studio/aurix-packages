@@ -55,9 +55,14 @@ jobs:
         env:
           ADD: ${{ github.event.inputs.add }}
         run: |
+          # El usuario del contenedor (builder) no es el del runner: sin esto no puede dejar el zip en la carpeta del repo.
+          chmod a+rwx "$GITHUB_WORKSPACE"
           extra=()
           if [ -n "$ADD" ]; then extra=(--add "$ADD"); fi
           ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }} "${extra[@]}"
+          # build-bootstraps.sh no falla si no puede mover el zip: comprobarlo aquí.
+          test -s "bootstrap-${{ matrix.arch }}.zip"
+          ls -lh "bootstrap-${{ matrix.arch }}.zip"
       - name: Guardar
         uses: actions/upload-artifact@v7
         with:
