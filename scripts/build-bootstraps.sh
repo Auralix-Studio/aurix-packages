@@ -456,7 +456,8 @@ main() {
 		PACKAGES+=("sed")
 		PACKAGES+=("tar")
 		PACKAGES+=("termux-exec")
-		PACKAGES+=("termux-keyring")
+		# Aurix: sin termux-keyring explícito. Son las claves del repositorio de Termux (inútiles para Aurix) y,
+		# como apt ya lo instala como dependencia, compilarlo otra vez falla («File exists»).
 		PACKAGES+=("termux-tools")
 		PACKAGES+=("util-linux")
 
