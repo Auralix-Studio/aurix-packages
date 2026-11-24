@@ -105,23 +105,50 @@ build_package() {
 declare -A DEB_DEPENDS=()
 declare -A WANTED_PACKAGES=()
 
-# Lee el nombre y las dependencias de cada .deb compilado para la arquitectura.
+# Valor de un campo del fichero «control» (texto por la entrada estándar), con sus líneas de continuación unidas.
+# No se usa `dpkg-deb -f`: es estricto y aborta con algunos control de Termux (p. ej. libgnutls-dane:
+# «field name 'Commandline' must be followed by colon»). Aquí una línea rara simplemente se ignora.
+control_field() {
+
+	awk -v field="$1" '
+		BEGIN { prefix = field ":"; n = length(prefix); on = 0; out = "" }
+		substr($0, 1, n) == prefix { v = substr($0, n + 1); sub(/^[ \t]+/, "", v); out = v; on = 1; next }
+		/^[ \t]/ && on { w = $0; sub(/^[ \t]+/, "", w); out = out " " w; next }
+		{ on = 0 }
+		END { print out }
+	'
+
+}
+
+# Lee el nombre y las dependencias de cada .deb compilado para la arquitectura. Extrae el «control» igual que
+# extract_debs (ar + tar), que es lo que ya se sabe que funciona con estos .deb.
 load_deb_dependencies() {
 
 	local package_arch="$1"
-	local deb name arch deps pre_deps
+	local deb name arch deps pre_deps control_dir
 
 	DEB_DEPENDS=()
+	control_dir="$(mktemp -d "$BOOTSTRAP_TMPDIR/control.XXXXXXXX")"
 	for deb in "$TERMUX_BUILT_DEBS_DIRECTORY"/*.deb; do
-		name="$(dpkg-deb -f "$deb" Package)"
-		arch="$(dpkg-deb -f "$deb" Architecture)"
+		rm -rf "${control_dir:?}"/*
+		if ! (cd "$control_dir" && { ar x "$deb" control.tar.xz 2>/dev/null || ar x "$deb" control.tar.gz; } && tar xf control.tar.*); then
+			echo "[!] No se pudo leer el control de '$deb'." 1>&2
+			return 1
+		fi
+		name="$(control_field Package < "$control_dir/control")"
+		arch="$(control_field Architecture < "$control_dir/control")"
+		if [[ -z "$name" ]]; then
+			echo "[!] '$deb' no tiene campo Package." 1>&2
+			return 1
+		fi
 		if [[ "$arch" != "$package_arch" && "$arch" != "all" ]]; then
 			continue
 		fi
-		pre_deps="$(dpkg-deb -f "$deb" Pre-Depends || true)"
-		deps="$(dpkg-deb -f "$deb" Depends || true)"
+		pre_deps="$(control_field Pre-Depends < "$control_dir/control")"
+		deps="$(control_field Depends < "$control_dir/control")"
 		DEB_DEPENDS["$name"]="${pre_deps:+$pre_deps, }$deps"
 	done
+	rm -rf "$control_dir"
 
 }
 
