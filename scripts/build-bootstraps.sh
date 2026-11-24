@@ -97,6 +97,78 @@ build_package() {
 
 }
 
+# Aurix: en output/ quedan TODOS los .deb que se compilaron, incluidos los subpaquetes de lo que se pidió y las
+# dependencias de éstos (git-svn -> subversion -> swig, python, doxygen; apt-transport-tor -> tor...). Meterlos
+# todos daba un sistema base de 393 MB descomprimidos en vez de ~105 MB. Solo entra lo pedido y sus dependencias.
+#
+# DEB_DEPENDS[paquete]="Pre-Depends, Depends" de cada .deb compilado; WANTED_PACKAGES[paquete]=1 los que entran.
+declare -A DEB_DEPENDS=()
+declare -A WANTED_PACKAGES=()
+
+# Lee el nombre y las dependencias de cada .deb compilado para la arquitectura.
+load_deb_dependencies() {
+
+	local package_arch="$1"
+	local deb name arch deps pre_deps
+
+	DEB_DEPENDS=()
+	for deb in "$TERMUX_BUILT_DEBS_DIRECTORY"/*.deb; do
+		name="$(dpkg-deb -f "$deb" Package)"
+		arch="$(dpkg-deb -f "$deb" Architecture)"
+		if [[ "$arch" != "$package_arch" && "$arch" != "all" ]]; then
+			continue
+		fi
+		pre_deps="$(dpkg-deb -f "$deb" Pre-Depends || true)"
+		deps="$(dpkg-deb -f "$deb" Depends || true)"
+		DEB_DEPENDS["$name"]="${pre_deps:+$pre_deps, }$deps"
+	done
+
+}
+
+# Rellena WANTED_PACKAGES con las raíces y, de forma transitiva, sus dependencias (usa DEB_DEPENDS).
+# Alternativas "a | b": se toma la primera que se compiló. Una raíz que no se compiló es un error.
+resolve_wanted_packages() {
+
+	local -a pending=("$@")
+	local -a dep_list=() alternatives=()
+	local current dep alt deps
+	local missing=0
+
+	WANTED_PACKAGES=()
+	while [ ${#pending[@]} -gt 0 ]; do
+		current="${pending[${#pending[@]}-1]}"
+		pending=("${pending[@]:0:${#pending[@]}-1}")
+
+		if [[ -n "${WANTED_PACKAGES[$current]+x}" ]]; then
+			continue
+		fi
+		if [[ -z "${DEB_DEPENDS[$current]+x}" ]]; then
+			echo "[!] El paquete '$current' no se compiló (no hay .deb)." 1>&2
+			missing=1
+			continue
+		fi
+		WANTED_PACKAGES["$current"]=1
+
+		deps="${DEB_DEPENDS[$current]}"
+		IFS=',' read -ra dep_list <<< "$deps"
+		for dep in "${dep_list[@]}"; do
+			IFS='|' read -ra alternatives <<< "$dep"
+			for alt in "${alternatives[@]}"; do
+				alt="${alt%%(*}"       # sin la versión: "libx (>= 1.0)" -> "libx "
+				alt="${alt//[[:space:]]/}"
+				alt="${alt%%:*}"       # sin ":any"
+				if [[ -n "$alt" && -n "${DEB_DEPENDS[$alt]+x}" ]]; then
+					pending+=("$alt")
+					break
+				fi
+			done
+		done
+	done
+
+	return $missing
+
+}
+
 # Extract *.deb files to the bootstrap root.
 extract_debs() {
 
@@ -134,6 +206,11 @@ extract_debs() {
 
 		if [[ "$current_package_name" == *"-static" ]]; then
 			echo "[*] Skipping static package '$deb'..."
+			continue
+		fi
+
+		if [[ -z "${WANTED_PACKAGES[$current_package_name]+x}" ]]; then
+			echo "[*] Skipping '$current_package_name': no es un paquete pedido ni dependencia de uno..."
 			continue
 		fi
 
@@ -491,7 +568,13 @@ main() {
 			set -e
 		done
 
-		# Extract all debs.
+		# Aurix: decidir qué entra en el zip. Los subpaquetes que se piden a propósito se añaden a mano:
+		# libbz2 produce también bzip2 y libcurl también curl, pero no dependen de ellos.
+		load_deb_dependencies "$TERMUX_ARCH"
+		resolve_wanted_packages "${PACKAGES[@]}" bzip2 curl || return $?
+		echo "[*] Paquetes que entran en el sistema base (${#WANTED_PACKAGES[@]}): ${!WANTED_PACKAGES[*]}"
+
+		# Extract the wanted debs.
 		extract_debs "$TERMUX_ARCH" || return $?
 
 		# Add termux bootstrap second stage files
