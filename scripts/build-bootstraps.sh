@@ -347,6 +347,17 @@ create_bootstrap_archive() {
 
 	echo $'\n\n\n'"[*] Creating 'bootstrap-${1}.zip'..."
 	(cd "${BOOTSTRAP_ROOTFS}/${TERMUX_PREFIX}"
+		# Aurix: recorte para el APK (el sistema base va dentro del paquete de la app). Fuera: páginas man e info,
+		# cabeceras, bibliotecas estáticas (.a/.la) y la documentación que no sea de licencia. NO se tocan los textos de
+		# licencia (copyright, COPYING*, LICENSE*, NOTICE*, AUTHORS* y share/LICENSES): GPL, LGPL y BSD exigen
+		# distribuirlos con los binarios. Ahorra unos 32 MB al extraer y ~9 MB de descarga.
+		rm -rf share/man share/info include
+		find . \( -name '*.a' -o -name '*.la' \) -type f -delete
+		if [ -d share/doc ]; then
+			find share/doc \( -type f -o -type l \) ! \( -iname 'copyright*' -o -iname 'copying*' -o -iname 'license*' -o -iname 'licence*' -o -iname 'notice*' -o -iname 'authors*' \) -delete
+			find share/doc -type d -empty -delete
+		fi
+
 		# Do not store symlinks in bootstrap archive.
 		# Instead, put all information to SYMLINKS.txt
 		while read -r -d '' link; do
