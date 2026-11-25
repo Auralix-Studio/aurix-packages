@@ -353,9 +353,50 @@ create_bootstrap_archive() {
 		# distribuirlos con los binarios. Ahorra unos 32 MB al extraer y ~9 MB de descarga.
 		rm -rf share/man share/info include
 		find . \( -name '*.a' -o -name '*.la' \) -type f -delete
+		# util-linux trae el módulo de Python de libmount; sin Python en el sistema base no sirve (y pide libpython).
+		if [ ! -e bin/python3 ]; then
+			rm -rf lib/python3*/site-packages/libmount
+			find lib -maxdepth 3 -type d -path 'lib/python3*' -empty -delete 2>/dev/null || true
+			find lib -maxdepth 1 -type d -name 'python3*' -empty -delete 2>/dev/null || true
+		fi
 		if [ -d share/doc ]; then
 			find share/doc \( -type f -o -type l \) ! \( -iname 'copyright*' -o -iname 'copying*' -o -iname 'license*' -o -iname 'licence*' -o -iname 'notice*' -o -iname 'authors*' \) -delete
 			find share/doc -type d -empty -delete
+		fi
+
+		# Aurix: avisar de rutas de Termux grabadas en lo que se ejecuta o se lee al arrancar (pasó con termux-tools:
+		# login y profile.d apuntaban a /data/data/com.termux y fallaban con «Permission denied»).
+		if [ "$TERMUX_APP__PACKAGE_NAME" != "com.termux" ]; then
+			local leaked
+			leaked="$(grep -rlI "/data/data/com\.termux/" bin etc libexec 2>/dev/null | sort || true)"
+			if [ -n "$leaked" ]; then
+				while read -r f; do echo "::warning title=Ruta com.termux en el sistema base (${1})::$f"; done <<< "$leaked"
+			fi
+		fi
+
+		# Aurix: cada ELF debe encontrar sus bibliotecas dentro del sistema base o en Android. Pasó con libcurl, que
+		# enlazaba libzstd sin declararlo: git clone https fallaba en el teléfono con «library not found».
+		local readelf_bin
+		readelf_bin="$(command -v readelf || command -v llvm-readelf || ls "${NDK:-/nonexistent}"/toolchains/llvm/prebuilt/*/bin/llvm-readelf 2>/dev/null | head -n 1 || true)"
+		if [ -z "$readelf_bin" ]; then
+			echo "::warning title=Sin readelf::No se comprobaron las bibliotecas del sistema base (${1})"
+		else
+			local android_libs=" libc.so libm.so libdl.so liblog.so libandroid.so libz.so libjnigraphics.so libEGL.so libGLESv1_CM.so libGLESv2.so libGLESv3.so libOpenSLES.so libOpenMAXAL.so libmediandk.so libcamera2ndk.so libvulkan.so libnativewindow.so libneuralnetworks.so libsync.so libaaudio.so libamidi.so libbinder_ndk.so libstdc++.so libicu.so "
+			local missing_libs=0 elf lib
+			while IFS= read -r -d '' elf; do
+				head -c 4 "$elf" 2>/dev/null | grep -q $'\x7fELF' || continue
+				while read -r lib; do
+					[ -z "$lib" ] && continue
+					[[ "$android_libs" == *" $lib "* ]] && continue
+					[ -e "lib/$lib" ] || [ -L "lib/$lib" ] && continue
+					echo "::error title=Biblioteca que falta en el sistema base (${1})::${elf#./} necesita $lib"
+					missing_libs=1
+				done < <("$readelf_bin" -d "$elf" 2>/dev/null | sed -n 's/.*(NEEDED).*\[\(.*\)\].*/\1/p')
+			done < <(find ./bin ./lib ./libexec -type f -print0 2>/dev/null)
+			if [ "$missing_libs" -ne 0 ]; then
+				echo "[!] Faltan bibliotecas en el sistema base de ${1}: no se publica un sistema que no arranca." 1>&2
+				exit 1
+			fi
 		fi
 
 		# Do not store symlinks in bootstrap archive.
@@ -366,7 +407,7 @@ create_bootstrap_archive() {
 		done < <(find . -type l -print0)
 
 		zip -r9 "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" ./*
-	)
+	) || return 1
 
 	# AppArmor (scripts/profile-restricted.apparmor) solo deja escribir en output/, no en la raíz del repo.
 	if ! mv -f "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" "$TERMUX_BUILT_DEBS_DIRECTORY/"; then
@@ -579,6 +620,9 @@ main() {
 		# como apt ya lo instala como dependencia, compilarlo otra vez falla («File exists»).
 		PACKAGES+=("termux-tools")
 		PACKAGES+=("util-linux")
+		# Aurix: dependencias que algunos programas enlazan sin declararlas (las detecta la comprobación de
+		# bibliotecas al crear el zip): libcurl, dpkg-deb y libmagic usan libzstd; lsns, libmount.
+		PACKAGES+=("zstd")
 
 		# Additional.
 		PACKAGES+=("ed")
@@ -609,7 +653,7 @@ main() {
 		# Aurix: decidir qué entra en el zip. Los subpaquetes que se piden a propósito se añaden a mano:
 		# libbz2 produce también bzip2 y libcurl también curl, pero no dependen de ellos.
 		load_deb_dependencies "$TERMUX_ARCH"
-		resolve_wanted_packages "${PACKAGES[@]}" bzip2 curl || return $?
+		resolve_wanted_packages "${PACKAGES[@]}" bzip2 curl libmount || return $?
 		echo "[*] Paquetes que entran en el sistema base (${#WANTED_PACKAGES[@]}): ${!WANTED_PACKAGES[*]}"
 
 		# Extract the wanted debs.

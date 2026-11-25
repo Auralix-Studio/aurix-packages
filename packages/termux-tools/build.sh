@@ -19,6 +19,11 @@ TERMUX_PKG_DEPENDS="coreutils, curl, dash, diffutils, findutils, gawk, grep, les
 TERMUX_PKG_RECOMMENDS="ed, dos2unix, inetutils, net-tools, patch, unzip"
 
 termux_step_pre_configure() {
+	# configure.ac lee estas variables del entorno y, si faltan, graba /data/data/com.termux en login, pkg,
+	# dalvikvm, termux-reset… (pasaba con pro.auralix.aurix). Las propiedades del build no se exportan solas.
+	export TERMUX_APP_PACKAGE="$TERMUX_APP__PACKAGE_NAME"
+	export TERMUX_BASE_DIR TERMUX_PREFIX TERMUX_CACHE_DIR TERMUX_ANDROID_HOME
+
 	# Can't apply these patch normally since they contains special @TERMUX..@ text which normal patch replaces:
 	for d in "$TERMUX_PKG_BUILDER_DIR"/*.diff; do
 		patch -p1 < "$d"
