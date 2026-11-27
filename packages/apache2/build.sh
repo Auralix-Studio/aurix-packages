@@ -3,7 +3,8 @@ TERMUX_PKG_DESCRIPTION="Apache Web Server"
 TERMUX_PKG_LICENSE="Apache-2.0"
 TERMUX_PKG_MAINTAINER="@termux"
 TERMUX_PKG_VERSION="1:2.4.69"
-TERMUX_PKG_SRCURL=https://downloads.apache.org/httpd/httpd-${TERMUX_PKG_VERSION#*:}.tar.bz2
+# Aurix: archive.apache.org conserva todas las versiones; downloads.apache.org retira la anterior (404) al salir una nueva.
+TERMUX_PKG_SRCURL=https://archive.apache.org/dist/httpd/httpd-${TERMUX_PKG_VERSION#*:}.tar.bz2
 TERMUX_PKG_SHA256=c5e6ebc66e349b87d7fc6916ae7cc2a808ed348003de134cf9e9d89d3e2cc73d
 TERMUX_PKG_DEPENDS="apr, apr-util, libandroid-support, libcrypt, libnghttp2, libuuid, openssl, pcre2, zlib"
 TERMUX_PKG_BREAKS="apache2-dev"

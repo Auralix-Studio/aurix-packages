@@ -93,6 +93,15 @@ jobs:
           ./scripts/run-docker.sh ./scripts/aurix-build-group.sh "$ARCH" "$PACKAGES"
           ls -lh output | tail -n +1
           du -sh output
+      # GitHub no admite «:» en los nombres de un artefacto y las versiones con época lo llevan (openssl_1:3.6.5…):
+      # sin esto falla la subida y se pierde todo lo compilado. El publicador lee la versión del control, no del nombre.
+      - name: Quitar «:» de los nombres de archivo
+        if: always()
+        run: |
+          if [ -d output ]; then
+            sudo find output -maxdepth 1 -name '*:*' -type f -exec bash -c 'mv -n -- "$1" "${1//:/%3a}"' _ {} \;
+            echo "$(find output -maxdepth 1 -name '*%3a*' | wc -l) archivos con época renombrados"
+          fi
       - name: Guardar los .deb
         if: always()
         uses: actions/upload-artifact@v7
