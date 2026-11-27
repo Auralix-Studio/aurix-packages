@@ -1,0 +1,111 @@
+# Compila desde las fuentes los paquetes que se instalan con «pkg install» en la terminal de Aurix (rutas de
+# pro.auralix.aurix). NO publica nada y no usa ningún secreto: compilar ejecuta código de terceros. Los .deb quedan
+# como artefactos y los publica aparte «Aurix publicar» (aurix_publish.yml).
+name: Aurix paquetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      groups:
+        description: "Grupos a compilar, separados por espacios (base dev llvm rust lenguajes jdk)"
+        required: true
+        default: "base dev llvm rust lenguajes jdk"
+      architectures:
+        description: "Arquitecturas separadas por espacios (aarch64 arm x86_64)"
+        required: true
+        default: "aarch64 arm x86_64"
+
+permissions: {}
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          GROUPS_IN: ${{ github.event.inputs.groups }}
+          ARCHS: ${{ github.event.inputs.architectures }}
+        run: |
+          # Cada grupo es un trabajo aparte: GitHub corta a las 6 horas y un fallo no arrastra a los demás.
+          catalog='{
+            "base": "fastfetch htop wget jq zip ripgrep vim tmux make perl",
+            "dev": "python nodejs-lts cmake",
+            "llvm": "libllvm",
+            "rust": "rust",
+            "lenguajes": "golang php ruby",
+            "jdk": "openjdk-21"
+          }'
+          matrix=$(jq -n -c --argjson catalog "$catalog" --arg groups "$GROUPS_IN" --arg archs "$ARCHS" '
+            { include: [ ($groups | split(" ") | map(select(length > 0)))[] as $g
+                         | ($archs | split(" ") | map(select(length > 0)))[] as $a
+                         | { group: $g, arch: $a, packages: ($catalog[$g] // error("grupo desconocido: " + $g)) } ] }')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: matrix
+    if: github.repository == 'Auralix-Studio/aurix-packages'
+    name: ${{ matrix.group }} (${{ matrix.arch }})
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
+    steps:
+      - name: Liberar espacio en disco
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost /usr/share/swift /usr/local/lib/node_modules
+          sudo docker image prune --all --force
+          sudo swapoff -a || true
+          sudo rm -f /swapfile /mnt/swapfile || true
+          sudo fallocate -l 12G /mnt/swapfile && sudo chmod 600 /mnt/swapfile && sudo mkswap /mnt/swapfile && sudo swapon /mnt/swapfile || true
+          df -h / /mnt
+      - name: Clonar
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Compilar ${{ matrix.packages }}
+        env:
+          ARCH: ${{ matrix.arch }}
+          PACKAGES: ${{ matrix.packages }}
+        run: |
+          # Un paquete que falle no impide compilar el resto; al final el trabajo falla diciendo cuáles.
+          cat > scripts/aurix-build-group.sh <<'EOF'
+          #!/usr/bin/env bash
+          failed=()
+          for p in $2; do
+            ok=0
+            for attempt in 1 2; do
+              echo "::group::$p (intento $attempt)"
+              if ./build-package.sh -a "$1" "$p"; then ok=1; echo "::endgroup::"; break; fi
+              echo "::endgroup::"
+              sleep 45
+            done
+            [ "$ok" = 1 ] || failed+=("$p")
+          done
+          mkdir -p output   # lo crea el contenedor: así tiene permiso de escritura
+          printf '%s\n' "${failed[@]}" | sed '/^$/d' > output/FAILED.txt
+          EOF
+          chmod +x scripts/aurix-build-group.sh
+          ./scripts/run-docker.sh ./scripts/aurix-build-group.sh "$ARCH" "$PACKAGES"
+          ls -lh output | tail -n +1
+          du -sh output
+      - name: Guardar los .deb
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: debs-${{ matrix.group }}-${{ matrix.arch }}
+          path: output/*.deb
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+      - name: Comprobar que no faltó ningún paquete
+        run: |
+          test -f output/FAILED.txt || { echo "::error::La compilación no llegó al final"; exit 1; }
+          if [ -s output/FAILED.txt ]; then
+            echo "::error title=No compilaron::$(tr '\n' ' ' < output/FAILED.txt)"
+            exit 1
+          fi
