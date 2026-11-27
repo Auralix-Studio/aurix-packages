@@ -1,0 +1,90 @@
+# Publica en https://dl.aurx.pro/aurix/apt los .deb de una ejecución de «Aurix paquetes».
+# Es el ÚNICO flujo con secretos y no compila nada. Antes de tocar R2 ensaya la publicación en una carpeta y la
+# comprueba con un apt real. Las versiones viejas se borran solas pasado el margen (ver scripts/aurix-repo/publish.py).
+name: Aurix publicar
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Número de la ejecución de «Aurix paquetes» cuyos .deb se publican"
+        required: true
+      grace_days:
+        description: "Días que se conserva una versión retirada antes de borrarla"
+        required: true
+        default: "7"
+      max_gb:
+        description: "Tope de espacio del repositorio en el bucket (GB)"
+        required: true
+        default: "5"
+      only_check:
+        description: "Solo ensayar y comprobar (no sube nada a R2)"
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: aurix-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'Auralix-Studio/aurix-packages' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: repositorio
+    permissions:
+      contents: read
+      actions: read
+    env:
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT || 'https://e607800cfece0c2b43e67f528937ff7d.r2.cloudflarestorage.com' }}
+      AWS_DEFAULT_REGION: auto
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Pruebas del publicador
+        run: python3 -m unittest discover -s scripts/aurix-repo -p 'test_*.py'
+      - name: Bajar los .deb
+        uses: actions/download-artifact@v8
+        with:
+          run-id: ${{ github.event.inputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: debs-*
+          path: debs
+      - name: Cargar la clave de firma
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          test -n "$APT_SIGNING_KEY" || { echo "::error::Falta el secreto APT_SIGNING_KEY (scripts/aurix-repo/crear-clave.ps1)"; exit 1; }
+          printf '%s\n' "$APT_SIGNING_KEY" | tr -d '\r' | sed '1s/^\xEF\xBB\xBF//' | gpg --batch --import
+          id=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/{print $10; exit}')
+          echo "APT_KEY_ID=$id" >> "$GITHUB_ENV"
+          gpg --export "$id" > "$RUNNER_TEMP/aurix-packages.gpg"
+          # La clave pública que firma tiene que ser la que va dentro de los teléfonos.
+          gpg --show-keys --with-colons packages/termux-keyring/aurix-packages.gpg | grep -q "^fpr:::::::::$id:" \
+            || { echo "::error::La clave del secreto no es la de packages/termux-keyring/aurix-packages.gpg"; exit 1; }
+      - name: Ensayo local y comprobación con apt
+        run: |
+          python3 scripts/aurix-repo/publish.py debs --local "$RUNNER_TEMP/ensayo" --max-gb "${{ github.event.inputs.max_gb }}"
+          (cd "$RUNNER_TEMP/ensayo" && python3 -m http.server 8765 --bind 127.0.0.1 > /dev/null 2>&1 &)
+          sleep 2
+          for arch in aarch64 arm x86_64; do
+            bash scripts/aurix-repo/comprobar-apt.sh http://127.0.0.1:8765 "$RUNNER_TEMP/aurix-packages.gpg" "$arch" htop wget
+          done
+      - name: Publicar en R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GRACE: ${{ github.event.inputs.grace_days }}
+          MAX_GB: ${{ github.event.inputs.max_gb }}
+          ONLY_CHECK: ${{ github.event.inputs.only_check }}
+        run: |
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" \
+            || { echo "::error::Faltan los secretos R2_ACCESS_KEY_ID y R2_SECRET_ACCESS_KEY"; exit 1; }
+          extra=()
+          if [ "$ONLY_CHECK" = "true" ]; then extra=(--dry-run); fi
+          python3 scripts/aurix-repo/publish.py debs --grace-days "$GRACE" --max-gb "$MAX_GB" "${extra[@]}"
+      - name: Comprobar lo publicado desde dl.aurx.pro
+        if: github.event.inputs.only_check != 'true'
+        run: bash scripts/aurix-repo/comprobar-apt.sh https://dl.aurx.pro/aurix/apt "$RUNNER_TEMP/aurix-packages.gpg" aarch64 htop wget

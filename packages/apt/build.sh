@@ -77,14 +77,15 @@ termux_step_pre_configure() {
 
 termux_step_post_make_install() {
 	mkdir -p "$TERMUX_PREFIX"/etc/apt/sources.list.d
+	# Aurix: repositorio propio. Los paquetes de Termux llevan grabadas las rutas de com.termux y aquí no instalan.
 	{
-		echo "# The main termux repository"
-		echo "Components: main"
-		echo "Signed-By: $TERMUX_PREFIX/etc/apt/trusted.gpg.d/termux-packages.gpg"
-		echo "Suites: stable"
+		echo "# Repositorio de paquetes de Aurix"
 		echo "Types: deb"
-		echo "URIs: https://termux.net"
-	} > $TERMUX_PREFIX/etc/apt/sources.list.d/termux.sources
+		echo "URIs: https://dl.aurx.pro/aurix/apt"
+		echo "Suites: stable"
+		echo "Components: main"
+		echo "Signed-By: $TERMUX_PREFIX/etc/apt/trusted.gpg.d/aurix-packages.gpg"
+	} > $TERMUX_PREFIX/etc/apt/sources.list.d/aurix.sources
 
 	# apt-transport-tor
 	ln -sfr $TERMUX_PREFIX/lib/apt/methods/http $TERMUX_PREFIX/lib/apt/methods/tor
