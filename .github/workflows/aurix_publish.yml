@@ -17,6 +17,10 @@ on:
         description: "Tope de espacio del repositorio en el bucket (GB)"
         required: true
         default: "5"
+      required:
+        description: "Paquetes que apt tiene que poder instalar en las 3 arquitecturas, o no se publica"
+        required: true
+        default: "python nodejs-lts clang"
       only_check:
         description: "Solo ensayar y comprobar (no sube nada a R2)"
         type: boolean
@@ -65,12 +69,14 @@ jobs:
           gpg --show-keys --with-colons packages/termux-keyring/aurix-packages.gpg | grep -q "^fpr:::::::::$id:" \
             || { echo "::error::La clave del secreto no es la de packages/termux-keyring/aurix-packages.gpg"; exit 1; }
       - name: Ensayo local y comprobación con apt
+        env:
+          REQUIRED: ${{ github.event.inputs.required }}
         run: |
           python3 scripts/aurix-repo/publish.py debs --local "$RUNNER_TEMP/ensayo" --max-gb "${{ github.event.inputs.max_gb }}"
           (cd "$RUNNER_TEMP/ensayo" && python3 -m http.server 8765 --bind 127.0.0.1 > /dev/null 2>&1 &)
           sleep 2
           for arch in aarch64 arm x86_64; do
-            bash scripts/aurix-repo/comprobar-apt.sh http://127.0.0.1:8765 "$RUNNER_TEMP/aurix-packages.gpg" "$arch" htop wget
+            bash scripts/aurix-repo/comprobar-apt.sh http://127.0.0.1:8765 "$RUNNER_TEMP/aurix-packages.gpg" "$arch" $REQUIRED
           done
       - name: Publicar en R2
         env:
@@ -87,4 +93,6 @@ jobs:
           python3 scripts/aurix-repo/publish.py debs --grace-days "$GRACE" --max-gb "$MAX_GB" "${extra[@]}"
       - name: Comprobar lo publicado desde dl.aurx.pro
         if: github.event.inputs.only_check != 'true'
-        run: bash scripts/aurix-repo/comprobar-apt.sh https://dl.aurx.pro/aurix/apt "$RUNNER_TEMP/aurix-packages.gpg" aarch64 htop wget
+        env:
+          REQUIRED: ${{ github.event.inputs.required }}
+        run: bash scripts/aurix-repo/comprobar-apt.sh https://dl.aurx.pro/aurix/apt "$RUNNER_TEMP/aurix-packages.gpg" aarch64 $REQUIRED
