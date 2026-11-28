@@ -27,7 +27,10 @@ class CheckTests(unittest.TestCase):
     def test_only_our_single_signer_passes(self):
         line = f'Signer #1 certificate SHA-256 digest: {CERT}\n'
         check_signer(line, CERT.upper())
-        for bad in ('', line.replace('a' * 64, 'b' * 64), line + f'Signer #2 certificate SHA-256 digest: {"c" * 64}\n'):
+        # Versiones nuevas de apksigner: una línea por esquema de firma, todas con el mismo certificado.
+        check_signer(f'V2 Signer: certificate SHA-256 digest: {CERT}\nV3 Signer: certificate SHA-256 digest: {CERT}\n', CERT)
+        check_signer(f'Signer (minSdkVersion=24, maxSdkVersion=2147483647) certificate SHA-256 digest: {CERT}\n', CERT)
+        for bad in('', line.replace('a' * 64, 'b' * 64), line + f'Signer #2 certificate SHA-256 digest: {"c" * 64}\n'):
             with self.assertRaises(ValueError):
                 check_signer(bad, CERT)
 

@@ -60,10 +60,14 @@ def check_badging(text: str, version: str) -> int:
 
 
 def check_signer(text: str, expected: str) -> None:
-    """Valida la salida de «apksigner verify --print-certs»: un único firmante, el esperado."""
-    found = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]{64})\s*$', text, re.M)
-    if found != [expected.lower().replace(':', '')]:
-        raise ValueError(f'firma inesperada: {found or "sin firma"}')
+    """Valida la salida de «apksigner verify --print-certs»: todos los certificados que nombre son el esperado.
+
+    La etiqueta de cada línea cambia entre versiones de apksigner («Signer #1», «V3 Signer», rangos de SDK…); lo que no
+    cambia es «certificate SHA-256 digest». Un firmante de más aparecería con otra huella.
+    """
+    found = {d.lower() for d in re.findall(r'certificate SHA-256 digest:\s*([0-9A-Fa-f]{64})\b', text)}
+    if found != {expected.lower().replace(':', '')}:
+        raise ValueError(f'firma inesperada: {sorted(found) or "sin firma"}. Salida de apksigner:\n{text[:1500]}')
 
 
 def sdk_tool(name: str) -> str:
