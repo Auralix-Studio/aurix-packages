@@ -5,7 +5,8 @@ TERMUX_PKG_MAINTAINER="@termux"
 TERMUX_PKG_VERSION="1.22.22"
 TERMUX_PKG_SRCURL=https://yarnpkg.com/downloads/${TERMUX_PKG_VERSION}/yarn-v${TERMUX_PKG_VERSION}.tar.gz
 TERMUX_PKG_SHA256=88268464199d1611fcf73ce9c0a6c4d44c7d5363682720d8506f6508addf36a0
-TERMUX_PKG_DEPENDS="nodejs | nodejs-lts"
+# Primero la LTS: la compilación usa siempre la primera alternativa y es la que Aurix publica.
+TERMUX_PKG_DEPENDS="nodejs-lts | nodejs"
 TERMUX_PKG_ANTI_BUILD_DEPENDS="nodejs, nodejs-lts"
 TERMUX_PKG_BUILD_IN_SRC=true
 TERMUX_PKG_PLATFORM_INDEPENDENT=true

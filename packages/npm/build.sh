@@ -5,7 +5,8 @@ TERMUX_PKG_MAINTAINER="Yaksh Bariya <thunder-coding@termux.dev>"
 TERMUX_PKG_VERSION="11.21.1"
 TERMUX_PKG_SRCURL=git+https://github.com/npm/cli.git
 TERMUX_PKG_SHA256=a7bba8c40e179d3be92176026f6c29caf6a8c7b0fcae4eb71951a9e103ac6f9e
-TERMUX_PKG_DEPENDS="nodejs | nodejs-lts"
+# Primero la LTS: la compilación usa siempre la primera alternativa y es la que Aurix publica.
+TERMUX_PKG_DEPENDS="nodejs-lts | nodejs"
 TERMUX_PKG_ANTI_BUILD_DEPENDS="nodejs, nodejs-lts"
 # npm was earlier packaged with nodejs and nodejs-lts packages.
 TERMUX_PKG_CONFLICTS="nodejs (<= 25.3.0), nodejs-lts (<= 24.13.0)"

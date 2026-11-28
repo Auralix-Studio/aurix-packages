@@ -5,7 +5,8 @@ TERMUX_PKG_MAINTAINER="Gouranga Das Samrat <gouranga.das.khulna@gmail.com>"
 TERMUX_PKG_VERSION="12.14.0"
 TERMUX_PKG_SRCURL="https://github.com/pnpm/pnpm/archive/refs/tags/v${TERMUX_PKG_VERSION}.tar.gz"
 TERMUX_PKG_SHA256=493c61b27f55435962a2e9c6602eba16aad544e488760540ff8d4967831b7f86
-TERMUX_PKG_DEPENDS="git, nodejs | nodejs-lts"
+# Primero la LTS: la compilación usa siempre la primera alternativa y es la que Aurix publica.
+TERMUX_PKG_DEPENDS="git, nodejs-lts | nodejs"
 TERMUX_PKG_UPDATE_TAG_TYPE="newest-tag"
 TERMUX_PKG_BUILD_IN_SRC=true
 TERMUX_PKG_AUTO_UPDATE=true
