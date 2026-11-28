@@ -51,25 +51,28 @@ class PublishTests(unittest.TestCase):
     def test_layout_matches_the_other_apps_and_the_manifest_is_true(self):
         publish(self.store, self.apks('0.2.0'), '0.2.0', 1, now=1_000_000)
         self.assertEqual(self.store.get('apk/aurix-android.apk'), b'apkuniversal')
-        self.assertEqual(self.store.get('releases/v0.2.0/apk/aurix-v0.2.0-arm64.apk'), b'apkarm64')
+        self.assertEqual(self.store.get('releases/v0.2.0-b1/apk/aurix-v0.2.0-arm64.apk'), b'apkarm64')
         data = json.loads(self.store.get('version.json'))
         asset = data['assets']['android-arm64']
         self.assertEqual(asset['sha256'], hashlib.sha256(b'apkarm64').hexdigest())
         self.assertEqual(asset['latest_url'], 'https://dl.aurx.pro/aurix/apk/aurix-android-arm64.apk')
         self.assertIn(f'{asset["sha256"]}  aurix-v0.2.0-arm64.apk', self.store.get('SHA256SUMS.txt').decode())
         keys = [key for _, key in self.store.log]
-        self.assertLess(keys.index('releases/v0.2.0/apk/aurix-v0.2.0-universal.apk'), keys.index('apk/aurix-android.apk'))
+        self.assertLess(keys.index('releases/v0.2.0-b1/apk/aurix-v0.2.0-universal.apk'), keys.index('apk/aurix-android.apk'))
         self.assertEqual(keys[-1], 'version.json')
         self.assertTrue(all(k.startswith(('apk/', 'releases/')) or k in ('SHA256SUMS.txt', 'version.json') for k in keys))
 
-    def test_never_goes_back_but_allows_rebuilding_the_same_version(self):
-        publish(self.store, self.apks('0.3.0'), '0.3.0', 5, now=0)
-        publish(self.store, self.apks('0.3.0', b'otro'), '0.3.0', 5, now=0)
+    def test_never_goes_back_and_a_build_number_has_only_one_content(self):
+        files = self.apks('0.3.0')
+        publish(self.store, files, '0.3.0', 5, now=0)
+        publish(self.store, files, '0.3.0', 5, now=0)  # repetir lo mismo (un flujo a medias) sí se puede
         self.store.log.clear()
-        for version, build in (('0.2.9', 9), ('0.3.0', 4)):
+        for version, build, content in (('0.2.9', 9, b'a'), ('0.3.0', 4, b'b'), ('0.3.0', 5, b'otro')):
             with self.assertRaises(RuntimeError):
-                publish(self.store, self.apks(version, f'x{build}'.encode()), version, build, now=0)
+                publish(self.store, self.apks(version, content), version, build, now=0)
         self.assertEqual(self.store.log, [])
+        data = publish(self.store, self.apks('0.3.0', b'nuevo'), '0.3.0', 6, now=0)
+        self.assertIn('/releases/v0.3.0-b6/', data['assets']['android-arm64']['cdn_url'])
 
     def test_all_four_variants_are_required(self):
         files = self.apks('0.2.0')
@@ -78,8 +81,8 @@ class PublishTests(unittest.TestCase):
             plan(files['arm64'].parent, '0.2.0')
 
     def test_cleanup_only_touches_older_version_folders(self):
-        folders = ['releases/v0.1.0/', 'releases/v0.2.0/', 'releases/v0.3.0/', 'releases/notas/', 'apt/']
-        self.assertEqual(old_releases(folders, '0.3.0'), ['releases/v0.1.0/', 'releases/v0.2.0/'])
+        folders = ['releases/v0.1.0/', 'releases/v0.3.0-b1/', 'releases/v0.3.0-b2/', 'releases/notas/', 'apt/']
+        self.assertEqual(old_releases(folders, 'releases/v0.3.0-b2/'), ['releases/v0.1.0/', 'releases/v0.3.0-b1/'])
 
 
 if __name__ == '__main__':

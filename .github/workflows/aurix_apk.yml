@@ -84,9 +84,10 @@ jobs:
         env:
           VERSION: ${{ github.event.inputs.version }}
         run: |
+          curl -fsS "https://dl.aurx.pro/aurix/version.json?comprobar=$GITHUB_RUN_ID" -o published.json
           for variant in arm64:-arm64 armv7:-armv7 x86_64:-x86_64 universal:; do
             name="aurix-android${variant#*:}.apk"
-            url="https://dl.aurx.pro/aurix/releases/v$VERSION/apk/aurix-v$VERSION-${variant%:*}.apk"
+            url=$(jq -r --arg key "android-${variant%:*}" '.assets[$key].cdn_url' published.json)
             expected=$(sha256sum "apk/aurix-v$VERSION-${variant%:*}.apk" | cut -d' ' -f1)
             # Cloudflare puede servir unos minutos la copia anterior de un nombre fijo: se espera a ver la nueva.
             for address in "$url" "https://dl.aurx.pro/aurix/apk/$name"; do

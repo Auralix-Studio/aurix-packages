@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Publica los APK de Aurix en el bucket aurx-dl, con la misma disposición que las otras apps de Auralix:
 
-  aurix/releases/vX.Y.Z/apk/aurix-vX.Y.Z-<variante>.apk    la versión publicada (solo se conserva la actual)
+  aurix/releases/vX.Y.Z-bN/apk/aurix-vX.Y.Z-<variante>.apk  la compilación publicada (solo se conserva la actual)
   aurix/apk/aurix-android[-<variante>].apk                 nombres fijos, para enlazar desde la web
   aurix/SHA256SUMS.txt y aurix/version.json
+
+Cloudflare sirve todo lo que está bajo releases/ como inmutable durante un año: una dirección de ahí no se puede
+reutilizar. Por eso cada compilación (versionCode) tiene su carpeta y el mismo número no admite otro contenido.
 
 Antes de subir nada comprueba cada APK: que sea de Aurix, de la versión pedida, no depurable y firmado con la clave
 de siempre (un APK con otra firma no se podría instalar encima, o no sería nuestro). Nunca baja de versión.
@@ -33,15 +36,18 @@ VARIANTS = {
     'x86_64': 'aurix-android-x86_64.apk',
     'universal': 'aurix-android.apk',
 }
-SHORT_CACHE = 'public, max-age=300'
 
 
 def source_name(variant: str, version: str) -> str:
     return f'aurix-v{version}-{variant}.apk'
 
 
-def release_key(variant: str, version: str) -> str:
-    return f'releases/v{version}/apk/{source_name(variant, version)}'
+def release_folder(version: str, build: int) -> str:
+    return f'releases/v{version}-b{build}/'
+
+
+def release_key(variant: str, version: str, build: int) -> str:
+    return f'{release_folder(version, build)}apk/{source_name(variant, version)}'
 
 
 def check_badging(text: str, version: str) -> int:
@@ -106,7 +112,7 @@ def manifest(version: str, build: int, files: dict[str, Path], now: float) -> di
         data = path.read_bytes()
         assets[f'android-{variant}'] = {
             'name': path.name,
-            'cdn_url': f'{CDN}/{release_key(variant, version)}',
+            'cdn_url': f'{CDN}/{release_key(variant, version, build)}',
             'latest_url': f'{CDN}/apk/{VARIANTS[variant]}',
             'size': len(data),
             'sha256': hashlib.sha256(data).hexdigest(),
@@ -115,9 +121,9 @@ def manifest(version: str, build: int, files: dict[str, Path], now: float) -> di
             'date': time.strftime('%Y-%m-%d', time.gmtime(now - 5 * 3600)), 'assets': assets}
 
 
-def old_releases(prefixes: list[str], version: str) -> list[str]:
+def old_releases(prefixes: list[str], current: str) -> list[str]:
     """De las carpetas bajo releases/, las que sobran (solo las que tienen forma de versión y no son la actual)."""
-    return sorted(p for p in prefixes if re.fullmatch(r'releases/v[0-9][0-9A-Za-z.+-]*/', p) and p != f'releases/v{version}/')
+    return sorted(p for p in prefixes if re.fullmatch(r'releases/v[0-9][0-9A-Za-z.+-]*/', p) and p != current)
 
 
 def publish(store, files: dict[str, Path], version: str, build: int, now: float) -> dict:
@@ -127,9 +133,14 @@ def publish(store, files: dict[str, Path], version: str, build: int, now: float)
         if compare_versions(version, published['version']) < 0 or (version == published['version'] and build < published['build']):
             raise RuntimeError(f'Publicada la {published["version"]} (build {published["build"]}): no se baja a {version} ({build}).')
     data = manifest(version, build, files, now)
+    if raw:
+        published = json.loads(raw)
+        same_number = (published['version'], published['build']) == (version, build)
+        if same_number and any(published['assets'][name]['sha256'] != asset['sha256'] for name, asset in data['assets'].items()):
+            raise RuntimeError(f'La {version} (build {build}) ya está publicada con otro contenido: sube versionCode.')
     sums = ''.join(f'{data["assets"][f"android-{v}"]["sha256"]}  {files[v].name}\n' for v in files)
     for variant, path in files.items():
-        store.put(release_key(variant, version), path, SHORT_CACHE)
+        store.put(release_key(variant, version, build), path, IMMUTABLE)
     # Los nombres fijos y version.json van después: nunca apuntan a algo que aún no está.
     for variant, path in files.items():
         store.put(f'apk/{VARIANTS[variant]}', path, NO_CACHE)
@@ -181,12 +192,14 @@ def main(argv=None) -> int:
     if len(builds) != 1:
         raise SystemExit(f'los APK tienen versionCode distintos: {sorted(builds)}')
     store = LocalStore(args.local) if args.local else ApkStore(args.endpoint, args.bucket, args.prefix)
-    data = publish(store, files, args.version, builds.pop(), time.time())
+    build = builds.pop()
+    data = publish(store, files, args.version, build, time.time())
     if isinstance(store, ApkStore):
         # Se limpia al final y solo si lo nuevo está subido.
         folders = store.release_folders()
-        if f'releases/v{args.version}/' in folders:
-            for folder in old_releases(folders, args.version):
+        current = release_folder(args.version, build)
+        if current in folders:
+            for folder in old_releases(folders, current):
                 store.delete_folder(folder)
                 print(f'Borrada la versión anterior: {folder}')
     for name, asset in data['assets'].items():
