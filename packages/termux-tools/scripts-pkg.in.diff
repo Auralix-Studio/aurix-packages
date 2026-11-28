@@ -1,7 +1,7 @@
 diff -u -r ../termux-tools-3.0.8/scripts/pkg.in ./scripts/pkg.in
 --- ../termux-tools-3.0.8/scripts/pkg.in	2024-08-27 06:17:26.000000000 +0000
 +++ ./scripts/pkg.in	2025-02-14 17:14:07.313518612 +0000
-@@ -77,34 +77,10 @@
+@@ -77,34 +77,16 @@
  }
  
  update_apt_cache() {
@@ -26,6 +26,12 @@ diff -u -r ../termux-tools-3.0.8/scripts/pkg.in ./scripts/pkg.in
 -		return
 -	fi
 -
++	if [ ! -e "@TERMUX_CACHE_DIR@/apt/pkgcache.bin" ] ||
++		! compgen -G "@TERMUX_PREFIX@/var/lib/apt/lists/*_Packages*" > /dev/null; then
++		apt update
++		return
++	fi
++
  	local cache_modified
  	cache_modified=$(last_modified "@TERMUX_CACHE_DIR@/apt/pkgcache.bin")
  
