@@ -3,6 +3,6 @@
     "name": "aurix-main",
     "distribution": "stable",
     "component": "main",
-    "url": "https://auralix-studio.github.io/aurix-packages"
+    "url": "https://dl.aurx.pro/aurix/apt"
   }
 }

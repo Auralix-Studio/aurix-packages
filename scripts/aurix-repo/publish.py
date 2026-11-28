@@ -186,8 +186,10 @@ def packages_index(state: dict, arch: str) -> bytes:
         fields = entry['fields']
         if entry['retired_at'] is not None or fields['Architecture'] not in (arch, 'all'):
             continue
-        lines = [f'{name}: {value}' for name, value in fields.items() if name not in ('Filename', 'Size', 'SHA256')]
-        lines += [f'Filename: {key}', f'Size: {entry["size"]}', f'SHA256: {entry["sha256"]}']
+        # El orden importa: scripts/get_hash_from_file.py (el que usa la compilación para bajar dependencias) exige
+        # «Package» primero y «Filename» y «SHA256» antes de «Version».
+        lines = [f'Package: {fields["Package"]}', f'Filename: {key}', f'Size: {entry["size"]}', f'SHA256: {entry["sha256"]}']
+        lines += [f'{name}: {value}' for name, value in fields.items() if name not in ('Package', 'Filename', 'Size', 'SHA256')]
         stanzas.append('\n'.join(lines) + '\n')
     return '\n'.join(stanzas).encode('utf-8')
 

@@ -2,6 +2,8 @@
 import hashlib
 import io
 import json
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -99,6 +101,21 @@ class PublishTests(unittest.TestCase):
         filename = [l for l in self.index().splitlines() if l.startswith('Filename: ') and 'htop' in l][0].split(' ', 1)[1]
         self.assertEqual(self.store.get(filename), deb.read_bytes())
 
+    def test_index_is_readable_by_the_build_system_script(self):
+        deb = make_deb(self.debs, 'libx', '1:2.0', extra='Depends: liby\n')
+        self.run_publish([deb, make_deb(self.debs, 'zeta', '1')], now=0)
+        index = Path(self.tmp.name) / 'Packages'
+        index.write_text(self.index(), encoding='utf-8')
+        script = Path(__file__).resolve().parent.parent / 'get_hash_from_file.py'
+        for version in ('1:2.0', '*'):
+            out = subprocess.run([sys.executable, str(script), str(index), 'libx', version], capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertEqual(out.stdout.split(), ['pool/main/libx/libx_1%3a2.0_aarch64.deb', hashlib.sha256(deb.read_bytes()).hexdigest()])
+        release = Path(self.tmp.name) / 'InRelease'
+        release.write_bytes(self.store.get('dists/stable/Release'))
+        out = subprocess.run([sys.executable, str(script), str(release), 'aarch64', 'main'], capture_output=True, text=True)
+        self.assertEqual(out.stdout.strip(), hashlib.sha256(self.store.get('dists/stable/main/binary-aarch64/Packages')).hexdigest())
+
     def test_new_version_leaves_index_at_once_and_is_deleted_after_grace(self):
         self.run_publish([make_deb(self.debs, 'htop', '3.4.1')], now=0)
         old_file = 'pool/main/htop/htop_3.4.1_aarch64.deb'
@@ -111,7 +128,8 @@ class PublishTests(unittest.TestCase):
         summary = self.run_publish([other], now=DAY + 7 * DAY)
         self.assertEqual(summary['deleted'], [old_file])
         self.assertIsNone(self.store.get(old_file))
-        self.assertIn('Package: htop\nVersion: 3.5.0', self.index())
+        htop = next(s for s in self.index().split(chr(10) * 2) if s.startswith('Package: htop'))
+        self.assertIn('Version: 3.5.0', htop)
 
     def test_never_downgrades_and_never_replaces_same_version(self):
         first = make_deb(self.debs, 'vim', '9.1', payload=b'uno')

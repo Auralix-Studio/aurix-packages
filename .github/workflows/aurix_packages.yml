@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       groups:
-        description: "Grupos a compilar, separados por espacios (base dev llvm rust lenguajes jdk)"
+        description: "Grupos a compilar, separados por espacios (ndk base editor fastfetch dev llvm rust lenguajes jdk)"
         required: true
-        default: "base dev llvm rust lenguajes jdk"
+        default: "ndk base editor fastfetch dev llvm rust lenguajes jdk"
       architectures:
         description: "Arquitecturas separadas por espacios (aarch64 arm x86_64)"
         required: true
@@ -30,7 +30,10 @@ jobs:
         run: |
           # Cada grupo es un trabajo aparte: GitHub corta a las 6 horas y un fallo no arrastra a los demás.
           catalog='{
-            "base": "fastfetch htop wget jq zip ripgrep vim tmux make perl",
+            "ndk": "ndk-sysroot",
+            "base": "htop wget jq zip tmux make perl ripgrep",
+            "editor": "vim",
+            "fastfetch": "fastfetch",
             "dev": "python nodejs-lts cmake",
             "llvm": "libllvm",
             "rust": "rust",

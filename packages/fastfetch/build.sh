@@ -5,10 +5,16 @@ TERMUX_PKG_MAINTAINER="@termux"
 TERMUX_PKG_VERSION="2.70.0"
 TERMUX_PKG_SRCURL=https://github.com/fastfetch-cli/fastfetch/archive/refs/tags/${TERMUX_PKG_VERSION}.tar.gz
 TERMUX_PKG_SHA256=8aa01bd3faff2be1d94f231d76489ce6d9f781f51f6e93eafe82359d6d8669af
-TERMUX_PKG_BUILD_DEPENDS="chafa, dbus, freetype, glib, imagemagick, libandroid-wordexp-static, libelf, libxcb, libxrandr, mesa-dev, ocl-icd, opencl-headers, pulseaudio, vulkan-headers, vulkan-loader-generic, zlib"
+# Aurix: es una terminal de teléfono sin escritorio. Sin X11, Wayland, GPU, sonido ni ImageMagick: esas dependencias
+# de compilación obligaban a construir mesa y LLVM.
+TERMUX_PKG_BUILD_DEPENDS="libandroid-wordexp-static, zlib"
 TERMUX_PKG_AUTO_UPDATE=true
 TERMUX_PKG_EXTRA_CONFIGURE_ARGS="
 -DTARGET_DIR_HOME=${TERMUX_ANDROID_HOME}
 -DTARGET_DIR_ROOT=${TERMUX_PREFIX}
 -DTARGET_DIR_USR=${TERMUX_PREFIX}
+-DENABLE_VULKAN=OFF -DENABLE_OPENCL=OFF -DENABLE_EGL=OFF -DENABLE_GLX=OFF -DENABLE_DRM=OFF
+-DENABLE_WAYLAND=OFF -DENABLE_XCB_RANDR=OFF -DENABLE_XRANDR=OFF -DENABLE_PULSE=OFF
+-DENABLE_DBUS=OFF -DENABLE_DCONF=OFF -DENABLE_GIO=OFF -DENABLE_SQLITE3=OFF -DENABLE_FREETYPE=OFF -DENABLE_ELF=OFF
+-DENABLE_IMAGEMAGICK7=OFF -DENABLE_IMAGEMAGICK6=OFF -DENABLE_CHAFA=OFF
 "
