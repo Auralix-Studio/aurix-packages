@@ -14,6 +14,10 @@ on:
         description: "Arquitecturas separadas por espacios (aarch64 arm x86_64)"
         required: true
         default: "aarch64 arm x86_64"
+      use_repo_deps:
+        description: "Bajar las dependencias ya publicadas en vez de compilarlas (mucho más rápido: rust, jdk)"
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -75,6 +79,7 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           PACKAGES: ${{ matrix.packages }}
+          DEPS_FLAG: ${{ github.event.inputs.use_repo_deps == 'true' && '-I' || '' }}
         run: |
           # Un paquete que falle no impide compilar el resto; al final el trabajo falla diciendo cuáles.
           cat > scripts/aurix-build-group.sh <<'EOF'
@@ -84,7 +89,7 @@ jobs:
             ok=0
             for attempt in 1 2; do
               echo "::group::$p (intento $attempt)"
-              if ./build-package.sh -a "$1" "$p"; then ok=1; echo "::endgroup::"; break; fi
+              if ./build-package.sh ${3:-} -a "$1" "$p"; then ok=1; echo "::endgroup::"; break; fi
               echo "::endgroup::"
               sleep 45
             done
@@ -94,7 +99,7 @@ jobs:
           printf '%s\n' "${failed[@]}" | sed '/^$/d' > output/FAILED.txt
           EOF
           chmod +x scripts/aurix-build-group.sh
-          ./scripts/run-docker.sh ./scripts/aurix-build-group.sh "$ARCH" "$PACKAGES"
+          ./scripts/run-docker.sh ./scripts/aurix-build-group.sh "$ARCH" "$PACKAGES" "$DEPS_FLAG"
           ls -lh output | tail -n +1
           du -sh output
       # GitHub no admite «:» en los nombres de un artefacto y las versiones con época lo llevan (openssl_1:3.6.5…):
