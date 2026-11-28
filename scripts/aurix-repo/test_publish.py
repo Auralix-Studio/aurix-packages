@@ -1,15 +1,18 @@
 """Pruebas del publicador (sin red ni R2):  python -m unittest discover -s scripts/aurix-repo -p "test_*.py" """
 import hashlib
+import http.client
 import io
 import json
 import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from urllib.parse import unquote
 
+from ensayo_servidor import serve
 from publish import DAY, LocalStore, clean_control, compare_versions, pool_key, publish, read_deb
 
 
@@ -213,6 +216,29 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.run_publish([make_deb(self.debs, 'jq', '1')], now=100)
         self.assertEqual(self.store.log, [])
+
+
+class RehearsalServerTests(unittest.TestCase):
+    def test_missing_packages_come_from_the_published_repo_but_indexes_never_do(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'pool').mkdir()
+            (Path(folder) / 'pool' / 'nuevo.deb').write_bytes(b'del ensayo')
+            server = serve(folder, 'https://publicado.invalid/apt/', 0)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                connection = http.client.HTTPConnection('127.0.0.1', server.server_address[1], timeout=10)
+
+                def get(path):
+                    connection.request('GET', path)
+                    response = connection.getresponse()
+                    return response.status, response.getheader('Location'), response.read()
+
+                self.assertEqual(get('/pool/nuevo.deb')[::2], (200, b'del ensayo'))
+                self.assertEqual(get('/pool/main/a/viejo.deb')[:2], (302, 'https://publicado.invalid/apt/pool/main/a/viejo.deb'))
+                self.assertEqual(get('/dists/stable/InRelease')[0], 404)
+            finally:
+                server.shutdown()
+                server.server_close()
 
 
 if __name__ == '__main__':

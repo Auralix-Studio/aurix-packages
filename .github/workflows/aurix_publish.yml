@@ -72,8 +72,17 @@ jobs:
         env:
           REQUIRED: ${{ github.event.inputs.required }}
         run: |
+          # El ensayo parte de lo que hay publicado: así se comprueba el repositorio tal como va a quedar, incluidos
+          # los paquetes nuevos que dependen de otros ya publicados. El estado es de lectura pública.
+          mkdir -p "$RUNNER_TEMP/ensayo"
+          code=$(curl -sS -o "$RUNNER_TEMP/ensayo/state.json" -w '%{http_code}' https://dl.aurx.pro/aurix/apt/state.json)
+          case "$code" in
+            200) ;;
+            404) rm "$RUNNER_TEMP/ensayo/state.json" ;; # todavía no hay nada publicado
+            *) echo "::error::No se pudo leer el estado publicado (HTTP $code)"; exit 1 ;;
+          esac
           python3 scripts/aurix-repo/publish.py debs --local "$RUNNER_TEMP/ensayo" --max-gb "${{ github.event.inputs.max_gb }}"
-          (cd "$RUNNER_TEMP/ensayo" && python3 -m http.server 8765 --bind 127.0.0.1 > /dev/null 2>&1 &)
+          python3 scripts/aurix-repo/ensayo_servidor.py "$RUNNER_TEMP/ensayo" https://dl.aurx.pro/aurix/apt 8765 &
           sleep 2
           for arch in aarch64 arm x86_64; do
             bash scripts/aurix-repo/comprobar-apt.sh http://127.0.0.1:8765 "$RUNNER_TEMP/aurix-packages.gpg" "$arch" $REQUIRED
