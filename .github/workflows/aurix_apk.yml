@@ -1,0 +1,113 @@
+# Publica los APK de Aurix en https://dl.aurx.pro/aurix/ (misma disposición que las otras apps de Auralix).
+# Los APK se compilan y firman en la máquina del dueño (la clave de firma no sale de ahí) y llegan en una release en
+# BORRADOR, que no es pública: la sube aurix-code/tools/publish-apk.ps1 y este flujo la borra al terminar.
+name: Aurix APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Etiqueta de la release en borrador que trae los APK (apk-…)"
+        required: true
+      version:
+        description: "Versión X.Y.Z"
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: aurix-apk
+  cancel-in-progress: false
+
+env:
+  # Huella del certificado de la clave de subida de Aurix. Es pública: va dentro de cada APK.
+  APK_CERT_SHA256: f5fbc5cbfc07636e9ebc82ca6713253a2371bd4422ebd197c9a3aec5e7d2e613
+
+jobs:
+  fetch:
+    # Ver un borrador exige permiso de escritura; este trabajo no tiene ningún secreto.
+    if: github.repository == 'Auralix-Studio/aurix-packages' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Bajar los APK del borrador
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ github.event.inputs.release }}
+        run: |
+          case "$RELEASE" in apk-*) ;; *) echo "::error::La etiqueta tiene que empezar por apk-"; exit 1 ;; esac
+          test "$(gh release view "$RELEASE" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true \
+            || { echo "::error::$RELEASE no es un borrador"; exit 1; }
+          gh release download "$RELEASE" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir apk
+          ls -l apk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: apks
+          path: apk/*.apk
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    needs: fetch
+    runs-on: ubuntu-latest
+    environment: repositorio
+    permissions:
+      contents: read
+      actions: read
+    env:
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT || 'https://e607800cfece0c2b43e67f528937ff7d.r2.cloudflarestorage.com' }}
+      AWS_DEFAULT_REGION: auto
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Pruebas de los publicadores
+        run: python3 -m unittest discover -s scripts/aurix-repo -p 'test_*.py'
+      - uses: actions/download-artifact@v8
+        with:
+          name: apks
+          path: apk
+      - name: Verificar y ensayar
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: python3 scripts/aurix-repo/publish_apk.py apk --version "$VERSION" --certificate "$APK_CERT_SHA256" --local "$RUNNER_TEMP/ensayo"
+      - name: Publicar en R2
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: python3 scripts/aurix-repo/publish_apk.py apk --version "$VERSION" --certificate "$APK_CERT_SHA256"
+      - name: Comprobar las descargas públicas
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          for variant in arm64:-arm64 armv7:-armv7 x86_64:-x86_64 universal:; do
+            name="aurix-android${variant#*:}.apk"
+            url="https://dl.aurx.pro/aurix/releases/v$VERSION/apk/aurix-v$VERSION-${variant%:*}.apk"
+            expected=$(sha256sum "apk/aurix-v$VERSION-${variant%:*}.apk" | cut -d' ' -f1)
+            # Cloudflare puede servir unos minutos la copia anterior de un nombre fijo: se espera a ver la nueva.
+            for address in "$url" "https://dl.aurx.pro/aurix/apk/$name"; do
+              ok=0
+              for attempt in $(seq 1 24); do
+                if [ "$(curl -fsS "$address" | sha256sum | cut -d' ' -f1)" = "$expected" ]; then ok=1; break; fi
+                sleep 30
+              done
+              [ "$ok" = 1 ] || { echo "::error::$address no sirve el APK publicado"; exit 1; }
+              echo "OK $address"
+            done
+          done
+
+  cleanup:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Borrar el borrador
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ github.event.inputs.release }}
+        run: gh release delete "$RELEASE" --repo "$GITHUB_REPOSITORY" --yes
