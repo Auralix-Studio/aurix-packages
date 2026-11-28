@@ -48,7 +48,10 @@ for problem in problems[:40]:
 sys.exit(1 if problems else 0)
 PY
 
-docker run --rm --network host -v "$key:/aurix.gpg:ro" -e URL="$url" -e ARCH="$arch" -e REQUIRED="$required" \
+# debian:stable-slim no trae certificados raíz y sin ellos apt no puede abrir un repositorio https; se le prestan los
+# de la máquina. (El sistema base del teléfono lleva los suyos: el paquete ca-certificates.)
+docker run --rm --network host -v "$key:/aurix.gpg:ro" -v /etc/ssl/certs/ca-certificates.crt:/host-ca.crt:ro \
+  -e URL="$url" -e ARCH="$arch" -e REQUIRED="$required" \
   debian:stable-slim bash -euc '
     mkdir -p /tmp/apt/lists/partial /tmp/apt/archives/partial /tmp/sueltos
     : > /tmp/apt/status
@@ -56,7 +59,8 @@ docker run --rm --network host -v "$key:/aurix.gpg:ro" -e URL="$url" -e ARCH="$a
     opts=(-o APT::Architecture="$ARCH" -o APT::Architectures="$ARCH"
           -o Dir::Etc::sourcelist=/tmp/apt/aurix.sources -o Dir::Etc::sourceparts=-
           -o Dir::State::lists=/tmp/apt/lists -o Dir::State::status=/tmp/apt/status
-          -o Dir::Cache::archives=/tmp/apt/archives -o APT::Update::Error-Mode=any)
+          -o Dir::Cache::archives=/tmp/apt/archives -o APT::Update::Error-Mode=any
+          -o Acquire::https::CAInfo=/host-ca.crt)
     apt-get "${opts[@]}" update
     bad=()
     for p in $(apt-cache "${opts[@]}" pkgnames | sort); do
