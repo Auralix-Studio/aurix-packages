@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       groups:
-        description: "Grupos a compilar, separados por espacios (ndk base editor fastfetch dev llvm rust lenguajes jdk)"
+        description: "Grupos a compilar, separados por espacios (ndk base editor fastfetch dev llvm rust lenguajes jdk extras)"
         required: true
-        default: "ndk base editor fastfetch dev llvm rust lenguajes jdk"
+        default: "ndk base editor fastfetch dev llvm rust lenguajes jdk extras"
       architectures:
         description: "Arquitecturas separadas por espacios (aarch64 arm x86_64)"
         required: true
@@ -38,7 +38,8 @@ jobs:
             "llvm": "libllvm",
             "rust": "rust",
             "lenguajes": "golang php ruby",
-            "jdk": "openjdk-21"
+            "jdk": "openjdk-21",
+            "extras": "npm yarn pnpm python-pip composer lua54"
           }'
           matrix=$(jq -n -c --argjson catalog "$catalog" --arg groups "$GROUPS_IN" --arg archs "$ARCHS" '
             { include: [ ($groups | split(" ") | map(select(length > 0)))[] as $g
