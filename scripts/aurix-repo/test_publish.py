@@ -8,8 +8,9 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import unquote
 
-from publish import DAY, LocalStore, clean_control, compare_versions, publish, read_deb
+from publish import DAY, LocalStore, clean_control, compare_versions, pool_key, publish, read_deb
 
 
 def make_deb(folder: Path, name: str, version: str, arch: str = 'aarch64', extra: str = '', payload: bytes = b'') -> Path:
@@ -110,7 +111,7 @@ class PublishTests(unittest.TestCase):
         for version in ('1:2.0', '*'):
             out = subprocess.run([sys.executable, str(script), str(index), 'libx', version], capture_output=True, text=True)
             self.assertEqual(out.returncode, 0, out.stderr)
-            self.assertEqual(out.stdout.split(), ['pool/main/libx/libx_1%3a2.0_aarch64.deb', hashlib.sha256(deb.read_bytes()).hexdigest()])
+            self.assertEqual(out.stdout.split(), ['pool/main/libx/libx_e1_2.0_aarch64.deb', hashlib.sha256(deb.read_bytes()).hexdigest()])
         release = Path(self.tmp.name) / 'InRelease'
         release.write_bytes(self.store.get('dists/stable/Release'))
         out = subprocess.run([sys.executable, str(script), str(release), 'aarch64', 'main'], capture_output=True, text=True)
@@ -168,9 +169,50 @@ class PublishTests(unittest.TestCase):
         first_delete = next(i for i, (action, _) in enumerate(self.store.log) if action == 'delete')
         self.assertGreater(first_delete, keys.index('state.json'))
 
-    def test_epoch_is_escaped_in_file_name(self):
-        self.run_publish([make_deb(self.debs, 'git', '1:2.0')], now=0)
-        self.assertIsNotNone(self.store.get('pool/main/git/git_1%3a2.0_aarch64.deb'))
+    def test_file_names_survive_url_decoding(self):
+        debs = [make_deb(self.debs, 'git', '1:2.0'), make_deb(self.debs, 'git', '2.0', arch='arm'),
+                make_deb(self.debs, 'libc++', '2.0~rc1+x')]
+        self.run_publish(debs, now=0)
+        for arch in ('aarch64', 'arm'):
+            for line in self.index(arch).splitlines():
+                if line.startswith('Filename: '):
+                    key = line.split(' ', 1)[1]
+                    self.assertEqual(unquote(key), key)
+                    self.assertNotIn(':', key)
+        self.assertIsNotNone(self.store.get('pool/main/git/git_e1_2.0_aarch64.deb'))
+
+    def test_epoch_never_collides_with_another_version(self):
+        keys = {pool_key({'Package': 'a', 'Version': v, 'Architecture': 'arm'}) for v in ('2.0', '1:2.0', '2:2.0', 'e1-2.0')}
+        self.assertEqual(len(keys), 4)
+
+    def publish_with_old_names(self, debs, now):
+        """Deja el repositorio como lo dejó el publicador anterior, con «%3a» en la clave."""
+        state = {'files': {}, 'indexes': {}}
+        for path in debs:
+            info = read_deb(path)
+            key = pool_key(info['fields']).replace('_e1_', '_1%3a')
+            state['files'][key] = {**info, 'retired_at': None}
+            self.store.put(key, path, '')
+        self.store.put('state.json', json.dumps(state).encode(), '')
+
+    def test_republishing_same_version_renames_undownloadable_files(self):
+        deb = make_deb(self.debs, 'openssl', '1:3.6')
+        self.publish_with_old_names([deb], now=0)
+        old, new = 'pool/main/openssl/openssl_1%3a3.6_aarch64.deb', 'pool/main/openssl/openssl_e1_3.6_aarch64.deb'
+        summary = self.run_publish([deb], now=100)
+        self.assertEqual(summary['uploaded'], [new])
+        self.assertIn(f'Filename: {new}', self.index())
+        self.assertNotIn('%3a', self.index())
+        self.assertEqual(self.store.get(new), deb.read_bytes())
+        self.assertEqual(self.run_publish([deb], now=200)['uploaded'], [])
+        self.assertEqual(self.run_publish([deb], now=100 + 7 * DAY)['deleted'], [old])
+
+    def test_refuses_to_leave_undownloadable_files_in_the_index(self):
+        self.publish_with_old_names([make_deb(self.debs, 'openssl', '1:3.6')], now=0)
+        self.store.log.clear()
+        with self.assertRaises(RuntimeError):
+            self.run_publish([make_deb(self.debs, 'jq', '1')], now=100)
+        self.assertEqual(self.store.log, [])
 
 
 if __name__ == '__main__':

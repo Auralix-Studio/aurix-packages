@@ -90,9 +90,22 @@ jobs:
             || { echo "::error::Faltan los secretos R2_ACCESS_KEY_ID y R2_SECRET_ACCESS_KEY"; exit 1; }
           extra=()
           if [ "$ONLY_CHECK" = "true" ]; then extra=(--dry-run); fi
-          python3 scripts/aurix-repo/publish.py debs --grace-days "$GRACE" --max-gb "$MAX_GB" "${extra[@]}"
+          python3 scripts/aurix-repo/publish.py debs --grace-days "$GRACE" --max-gb "$MAX_GB" \
+            --save-inrelease "$RUNNER_TEMP/InRelease.subido" "${extra[@]}"
       - name: Comprobar lo publicado desde dl.aurx.pro
         if: github.event.inputs.only_check != 'true'
         env:
           REQUIRED: ${{ github.event.inputs.required }}
-        run: bash scripts/aurix-repo/comprobar-apt.sh https://dl.aurx.pro/aurix/apt "$RUNNER_TEMP/aurix-packages.gpg" aarch64 $REQUIRED
+        run: |
+          # Cloudflare guarda el InRelease unos 5 minutos aunque pedimos «no-cache»: hasta que no sirva el que se acaba
+          # de subir, la comprobación estaría mirando el anterior.
+          for attempt in $(seq 1 24); do
+            if curl -fsS https://dl.aurx.pro/aurix/apt/dists/stable/InRelease -o "$RUNNER_TEMP/InRelease.publico" \
+               && cmp -s "$RUNNER_TEMP/InRelease.publico" "$RUNNER_TEMP/InRelease.subido"; then break; fi
+            sleep 30
+          done
+          cmp "$RUNNER_TEMP/InRelease.publico" "$RUNNER_TEMP/InRelease.subido" \
+            || { echo "::error::dl.aurx.pro sigue sirviendo un InRelease anterior"; exit 1; }
+          for arch in aarch64 arm x86_64; do
+            bash scripts/aurix-repo/comprobar-apt.sh https://dl.aurx.pro/aurix/apt "$RUNNER_TEMP/aurix-packages.gpg" "$arch" $REQUIRED
+          done

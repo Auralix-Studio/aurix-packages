@@ -135,14 +135,16 @@ def read_deb(path: Path) -> dict:
         raise ValueError(f'{path.name}: arquitectura no admitida {fields["Architecture"]}')
     if not re.fullmatch(r'[a-z0-9][a-z0-9+.-]*', fields['Package']):
         raise ValueError(f'{path.name}: nombre de paquete no válido')
-    if not re.fullmatch(r'[A-Za-z0-9.+:~-]+', fields['Version']):
+    if not re.fullmatch(r'(\d+:)?[A-Za-z0-9.+~-]+', fields['Version']):
         raise ValueError(f'{path.name}: versión no válida')
     return {'fields': fields, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
 
 
 def pool_key(fields: dict) -> str:
-    # El «:» de la época no va en el nombre del archivo (convención de Debian).
-    version = fields['Version'].replace(':', '%3a')
+    # Ni «:» ni «%» en la clave: el servidor decodifica la URL, así que un objeto llamado «…%3a…» da 404 al pedirlo.
+    # La época va como un tramo «_eN_»; ni el nombre ni la versión admiten «_», así que no puede chocar con otra versión.
+    epoch, separator, rest = fields['Version'].partition(':')
+    version = f'e{epoch}_{rest}' if separator else fields['Version']
     name = fields['Package']
     return f'pool/main/{name}/{name}_{version}_{fields["Architecture"]}.deb'
 
@@ -163,7 +165,9 @@ def merge(state: dict, incoming: list[tuple[Path, dict]], now: float) -> tuple[d
         current_key = active().get(identity)
         if current_key:
             order = compare_versions(fields['Version'], files[current_key]['fields']['Version'])
-            if order <= 0:
+            # La misma versión solo se vuelve a subir si lo publicado quedó con un nombre que ya no se usa.
+            renamed = order == 0 and current_key != pool_key(files[current_key]['fields'])
+            if order < 0 or (order == 0 and not renamed):
                 continue  # igual (aunque se haya recompilado) o más vieja: se queda lo publicado
             files[current_key]['retired_at'] = now
             uploads.pop(current_key, None)
@@ -301,6 +305,10 @@ def publish(store, debs: list[Path], sign, grace_days: float, max_bytes: int, no
     old = json.loads(raw) if raw else {'files': {}, 'indexes': {}}
     incoming = [(path, read_deb(path)) for path in sorted(debs)]
     state, uploads = merge(old, incoming, now)
+    broken = sorted(k for k, v in state['files'].items() if v['retired_at'] is None and ('%' in k or ':' in k))
+    if broken:
+        raise RuntimeError(f'Quedarían {len(broken)} paquetes que no se pueden descargar ({broken[0]}…). Publica otra vez la '
+                           'ejecución que los trajo para subirlos con el nombre nuevo. No se subió nada.')
 
     indexes, release = build_indexes(state, now)
     current = {by_hash_key(name, body): len(body) for name, body in indexes.items()}
@@ -343,6 +351,7 @@ def publish(store, debs: list[Path], sign, grace_days: float, max_bytes: int, no
     store.put('dists/stable/Release', release, NO_CACHE)
     store.put('dists/stable/Release.gpg', detached, NO_CACHE)
     store.put('dists/stable/InRelease', inrelease, NO_CACHE)
+    summary['inrelease'] = inrelease
     store.put('state.json', json.dumps(state, sort_keys=True).encode('utf-8'), NO_CACHE)
     # Borrar al final: si algo falla antes, sobran archivos pero no falta ninguno.
     for key in dead_files + dead_indexes:
@@ -361,6 +370,7 @@ def main(argv=None) -> int:
     parser.add_argument('--max-gb', type=float, default=5.0)
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--local', type=Path, help='ensayo: publica en una carpeta en vez de en R2')
+    parser.add_argument('--save-inrelease', type=Path, help='copia aquí el InRelease subido, para esperar a verlo publicado')
     args = parser.parse_args(argv)
     if not (args.endpoint or args.local) or (not args.sign_key and not args.dry_run):
         parser.error('faltan --endpoint (R2_ENDPOINT) o --local, o --sign-key (APT_KEY_ID)')
@@ -371,6 +381,8 @@ def main(argv=None) -> int:
     summary = publish(store, debs,
                       lambda release: gpg_sign(release, args.sign_key), args.grace_days, int(args.max_gb * 1e9),
                       dry_run=args.dry_run)
+    if args.save_inrelease and 'inrelease' in summary:
+        args.save_inrelease.write_bytes(summary['inrelease'])
     print(f'Subidos: {len(summary["uploaded"])} · borrados: {len(summary["deleted"])} · activos: {summary["active"]} · '
           f'en margen antes de borrarse: {summary["retired"]} · tamaño: {summary["bytes"] / 1e9:.2f} GB'
           + (' (simulacro: no se cambió nada)' if args.dry_run else ''))
