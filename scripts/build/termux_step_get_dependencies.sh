@@ -93,6 +93,11 @@ termux_step_get_dependencies() {
 		fi
 	done
 
+	# Con «-I» quedan en el prefijo los .la de lo compilado antes en la misma ejecución. Apuntan a otros .la que las
+	# dependencias descargadas no traen (van en los paquetes «-static», que no se instalan) y libtool falla al enlazar.
+	if [ "$TERMUX_ON_DEVICE_BUILD" != "true" ] && [ "$TERMUX_INSTALL_DEPS" = "true" ] && [ -d "$TERMUX_PREFIX/lib" ]; then
+		find "$TERMUX_PREFIX/lib" -name '*.la' -delete
+	fi
 }
 
 termux_run_build-package() {
