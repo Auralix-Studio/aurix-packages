@@ -75,7 +75,10 @@ jobs:
           # El ensayo parte de lo que hay publicado: así se comprueba el repositorio tal como va a quedar, incluidos
           # los paquetes nuevos que dependen de otros ya publicados. El estado es de lectura pública.
           mkdir -p "$RUNNER_TEMP/ensayo"
-          code=$(curl -sS -o "$RUNNER_TEMP/ensayo/state.json" -w '%{http_code}' https://dl.aurx.pro/aurix/apt/state.json)
+          # Con una consulta distinta cada vez: Cloudflare guarda el estado unos minutos y, tras otra publicación
+          # reciente, el ensayo partiría de lo de antes.
+          code=$(curl -sS -o "$RUNNER_TEMP/ensayo/state.json" -w '%{http_code}' \
+            "https://dl.aurx.pro/aurix/apt/state.json?ensayo=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")
           case "$code" in
             200) ;;
             404) rm "$RUNNER_TEMP/ensayo/state.json" ;; # todavía no hay nada publicado
