@@ -100,7 +100,16 @@ jobs:
           sha256sum bootstrap-*.zip > SHA256SUMS
           cat SHA256SUMS
           tag="bootstrap-$(date -u +%Y.%m.%d)-${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+          # El token del flujo no puede etiquetar un commit anterior si main cambió algún flujo desde entonces (HTTP 403
+          # tras horas compilando). En ese caso la etiqueta queda en main y las notas dicen qué commit se compiló.
+          target=()
+          where="La etiqueta apunta a ese commit."
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA" ]; then
+            target=(--target "$GITHUB_SHA")
+          else
+            where="main avanzó mientras compilaba: la etiqueta NO apunta a ese commit; el código compilado es el de $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$GITHUB_SHA"
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" "${target[@]}" \
             --title "Sistema base de la terminal de Aurix ($tag)" \
-            --notes "Compilado desde las fuentes de este repositorio (commit $GITHUB_SHA) para pro.auralix.aurix. Paquetes extra: ${ADD:-ninguno}. Licencias: ver LICENSE.md y la licencia de cada paquete." \
+            --notes "Compilado desde las fuentes de este repositorio (commit $GITHUB_SHA) para pro.auralix.aurix. $where Paquetes extra: ${ADD:-ninguno}. Licencias: ver LICENSE.md y la licencia de cada paquete." \
             ./bootstrap-*.zip SHA256SUMS
