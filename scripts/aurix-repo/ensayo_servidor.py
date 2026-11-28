@@ -20,8 +20,10 @@ class Handler(SimpleHTTPRequestHandler):
     def send_head(self):
         if os.path.isfile(self.translate_path(self.path)):
             return super().send_head()
-        # Solo los .deb: índices y firmas tienen que ser los del ensayo, nunca los publicados.
-        if self.path.startswith('/pool/'):
+        # Solo lo que no puede cambiar: los .deb y los índices por hash (el nombre fija su contenido; el de una
+        # arquitectura sin novedades no se vuelve a generar en el ensayo). InRelease e índices por su nombre tienen que
+        # ser los del ensayo, nunca los publicados.
+        if self.path.startswith('/pool/') or '/by-hash/SHA256/' in self.path:
             self.send_response(302)
             self.send_header('Location', self.published + self.path)
             self.send_header('Content-Length', '0')

@@ -235,7 +235,10 @@ class RehearsalServerTests(unittest.TestCase):
 
                 self.assertEqual(get('/pool/nuevo.deb')[::2], (200, b'del ensayo'))
                 self.assertEqual(get('/pool/main/a/viejo.deb')[:2], (302, 'https://publicado.invalid/apt/pool/main/a/viejo.deb'))
+                by_hash = '/dists/stable/main/binary-arm/by-hash/SHA256/' + 'a' * 64
+                self.assertEqual(get(by_hash)[:2], (302, 'https://publicado.invalid/apt' + by_hash))
                 self.assertEqual(get('/dists/stable/InRelease')[0], 404)
+                self.assertEqual(get('/dists/stable/main/binary-arm/Packages')[0], 404)
             finally:
                 server.shutdown()
                 server.server_close()
